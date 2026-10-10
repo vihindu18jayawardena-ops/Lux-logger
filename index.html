@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LuxLog</title>
+<meta name="description" content="Simple lux survey: enter location and meter reading, get an automatic report with graphs, Excel and Word.">
+<meta name="theme-color" content="#1F5FA8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="LuxLog">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: field-logger app. Two tabs (Enter / Report); one big entry card, a running list, then an auto report. */
+:root {
+  --paper: #F3F6F7; --panel: #FFFFFF; --ink: #15212A; --muted: #5A6974; --rule: #D5DDE2;
+  --accent: #1F5FA8; --accent-soft: #E3EDF8;
+  --low: #C0392B; --low-soft: #F9E0DC; --good: #2E8B57; --good-soft: #DDF1E4; --high: #B97700; --high-soft: #FBEBCB;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --radius: 12px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0E151A; --panel: #16212A; --ink: #E5ECF0; --muted: #94A4AF; --rule: #2A3843;
+    --accent: #82B2F2; --accent-soft: #1C2D42;
+    --low: #F0857A; --low-soft: #3A1E1C; --good: #62C68F; --good-soft: #173326; --high: #E9AC52; --high-soft: #3A2A14;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0E151A; --panel: #16212A; --ink: #E5ECF0; --muted: #94A4AF; --rule: #2A3843;
+  --accent: #82B2F2; --accent-soft: #1C2D42;
+  --low: #F0857A; --low-soft: #3A1E1C; --good: #62C68F; --good-soft: #173326; --high: #E9AC52; --high-soft: #3A2A14;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.5; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.wrap { max-width: 860px; margin: 0 auto; padding-inline: 16px; padding-block: 0 110px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-block: 12px; flex-wrap: wrap; }
+.brand { font-family: var(--font-display); font-weight: 700; font-size: 26px; display: flex; align-items: baseline; gap: 2px; }
+.brand sup { font-family: var(--font-data); font-size: 11px; color: var(--accent); }
+.picker { display: flex; gap: 8px; align-items: center; min-width: 0; flex: 1 1 260px; justify-content: flex-end; }
+.picker select { min-width: 0; max-width: 100%; flex: 1 1 auto; min-height: 40px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); padding: 6px 8px; font-size: 14px; }
+
+.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--paper); padding-block: 8px; margin-bottom: 8px; }
+.tab { min-height: 48px; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); font-weight: 600; cursor: pointer; font-size: 16px; }
+.tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.tab .badge { font-family: var(--font-data); font-size: 13px; opacity: 0.85; }
+
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; min-width: 0; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(24px, 5vw, 30px); line-height: 1.15; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 20px; margin: 0 0 10px; }
+.sub { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.head-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.head-row h2 { margin: 0; }
+
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field label { font-size: 13px; color: var(--muted); font-weight: 600; }
+.field input, .field select, .field textarea { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); font-size: 17px; }
+.field textarea { min-height: 90px; resize: vertical; font-size: 15px; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.field input.lux { font-family: var(--font-data); font-size: 30px; font-weight: 600; min-height: 64px; font-variant-numeric: tabular-nums; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.entry-form { display: grid; gap: 12px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 520px) { .two { grid-template-columns: 1fr; } }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 8px 16px; border-radius: 10px; border: 1px solid var(--rule); background: var(--panel); cursor: pointer; font-weight: 600; font-size: 15px; white-space: nowrap; text-decoration: none; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.btn.big { min-height: 56px; font-size: 18px; width: 100%; }
+.btn.danger { color: var(--low); }
+.btn.danger.armed { background: var(--low); border-color: var(--low); color: var(--panel); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn svg { width: 20px; height: 20px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.preview { border-radius: 10px; padding: 10px 12px; font-size: 15px; background: var(--accent-soft); min-height: 46px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.preview.s-low { background: var(--low-soft); }
+.preview.s-good { background: var(--good-soft); }
+.preview.s-high { background: var(--high-soft); }
+
+.pill { display: inline-flex; align-items: center; justify-content: center; min-width: 58px; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+.pill.s-low { color: var(--low); background: var(--low-soft); }
+.pill.s-good { color: var(--good); background: var(--good-soft); }
+.pill.s-high { color: var(--high); background: var(--high-soft); }
+
+.list { display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: 1fr auto auto 44px; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--rule); }
+.row:first-child { border-top: 0; }
+.row .loc { font-weight: 600; overflow-wrap: anywhere; }
+.row .meta { font-size: 13px; color: var(--muted); }
+.row .val { font-family: var(--font-data); font-weight: 600; font-size: 20px; font-variant-numeric: tabular-nums; text-align: right; }
+.row .val small { font-size: 12px; color: var(--muted); margin-left: 2px; }
+.x { width: 44px; height: 44px; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.x:hover { color: var(--low); border-color: var(--low); }
+.x svg { width: 18px; height: 18px; }
+@media (max-width: 460px) {
+  .row { grid-template-columns: 1fr auto 44px; }
+  .row .pill { grid-column: 1; justify-self: start; grid-row: 2; }
+  .row .val { grid-row: 1 / 3; grid-column: 2; }
+  .row .x { grid-row: 1 / 3; grid-column: 3; }
+}
+.counts { display: flex; gap: 6px; flex-wrap: wrap; }
+.match { border: 1px dashed var(--rule); border-radius: 10px; padding: 10px 12px; font-size: 15px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; min-height: 46px; }
+.match.ok { border-style: solid; background: var(--accent-soft); border-color: transparent; }
+.match.miss { border-color: var(--high); background: var(--high-soft); }
+.match b { font-weight: 600; }
+.linkbtn { background: none; border: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; padding: 4px 0; font-weight: 600; }
+
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tile { border-radius: var(--radius); padding: 12px 14px; border: 1px solid var(--rule); background: var(--panel); }
+.tile .k { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.tile .v { font-family: var(--font-data); font-size: 30px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.tile .p { font-size: 13px; color: var(--muted); }
+.tile.s-low { background: var(--low-soft); } .tile.s-low .k, .tile.s-low .v { color: var(--low); }
+.tile.s-good { background: var(--good-soft); } .tile.s-good .k, .tile.s-good .v { color: var(--good); }
+.tile.s-high { background: var(--high-soft); } .tile.s-high .k, .tile.s-high .v { color: var(--high); }
+
+.downloads { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 460px) { .downloads { grid-template-columns: 1fr; } }
+canvas { display: block; width: 100%; height: auto; }
+.findings p { margin: 0 0 8px; max-width: 70ch; }
+.tbl-wrap { overflow-x: auto; }
+@media (max-width: 560px) { .opt { display: none; } }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+td.n, th.n { white-space: nowrap; text-align: right; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.empty { text-align: center; color: var(--muted); padding: 24px 12px; }
+.empty p { margin: 0 auto 12px; max-width: 42ch; }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--paper); padding: 10px 12px 10px 16px; border-radius: 10px; font-size: 15px; max-width: calc(100% - 32px); width: max-content; box-shadow: 0 6px 20px rgba(0,0,0,0.25); display: flex; gap: 12px; align-items: center; z-index: 20; }
+.toast button { background: none; border: 1px solid currentColor; color: inherit; border-radius: 8px; padding: 4px 10px; font-weight: 700; cursor: pointer; }
+.busy { opacity: 0.6; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">LuxLog<sup>LX</sup></div>
+    <div class="picker">
+      <select id="survey-select" aria-label="Survey"></select>
+      <button class="btn" id="new-survey" type="button">+ New survey</button>
+    </div>
+  </header>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-enter" data-tab="enter" aria-selected="true">Enter readings</button>
+    <button class="tab" role="tab" id="tab-report" data-tab="report" aria-selected="false">Report <span class="badge" id="badge"></span></button>
+  </nav>
+
+  <main>
+    <!-- ENTER -->
+    <section id="view-enter" class="stack">
+      <section class="panel">
+        <div class="grid3">
+          <div class="field"><label for="s-site">Site / building</label><input id="s-site" placeholder="e.g. Base Hospital Panadura" autocomplete="off"></div>
+          <div class="field"><label for="s-auditor">Surveyed by</label><input id="s-auditor" placeholder="Your name" autocomplete="name"></div>
+          <div class="field"><label for="s-date">Date</label><input id="s-date" type="date"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <form id="entry-form" class="entry-form" autocomplete="off">
+          <div class="field"><label for="f-loc">Location</label><input id="f-loc" list="loc-list" placeholder="e.g. Ward 3 – bed 4, OPD room 2, Main corridor" enterkeyhint="next"><datalist id="loc-list"></datalist></div>
+          <div class="match" id="match" aria-live="polite"></div>
+          <div class="field" id="pick-wrap" hidden><label for="f-area">Area type for this location</label><select id="f-area"></select></div>
+          <div class="two" id="custom-wrap" hidden>
+            <div class="field"><label for="f-min">Recommended min (lx)</label><input id="f-min" inputmode="decimal"></div>
+            <div class="field"><label for="f-max">Recommended max (lx, optional)</label><input id="f-max" inputmode="decimal"></div>
+          </div>
+          <div class="field"><label for="f-lux">Measured lux (from meter)</label><input id="f-lux" class="lux" inputmode="decimal" placeholder="0" enterkeyhint="done"></div>
+          <div class="preview" id="preview" aria-live="polite"></div>
+          <button class="btn primary big" type="submit">Add reading</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="head-row" style="margin-bottom:6px"><h2 id="list-title">Readings</h2><div class="counts" id="list-counts"></div></div>
+        <div class="list" id="list"></div>
+        <div class="actions" id="list-actions" style="margin-top:12px"></div>
+      </section>
+    </section>
+
+    <!-- REPORT -->
+    <section id="view-report" class="stack" hidden></section>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" hidden><span id="toast-text"></span><button id="toast-action" type="button" hidden>Undo</button></div>
+
+<script src="jis.js"></script>
+<script src="report.js"></script>
+<script>
+(() => {
+  "use strict";
+  const R = window.LuxReport;
+
+  const J = window.JIS;
+  const areaByKey = (k) => J.AREAS.find((a) => a.key === k);
+
+  // ---------- Helpers ----------
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const num = (v) => { const s = String(v ?? "").trim().replace(",", "."); if (!s) return null; const n = Number(s); return Number.isFinite(n) ? n : null; };
+  const fmtLux = (v) => (v < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toString());
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const hhmm = (iso) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  const ICON_X = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+  const ICON_DL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>`;
+
+  // ---------- Data ----------
+  const KEY = "luxlog.v2";
+  let data = { surveys: [], currentId: null };
+  function load() {
+    try { const j = JSON.parse(localStorage.getItem(KEY) || "null"); if (j && Array.isArray(j.surveys)) data = j; } catch (e) {}
+    if (!data.surveys.length) data.surveys.push(blankSurvey());
+    if (!cur()) data.currentId = data.surveys[0].id;
+    if (!data.learned || typeof data.learned !== "object") data.learned = {};
+  }
+  function blankSurvey() {
+    const prev = data.surveys.find((x) => x.id === data.currentId);
+    return { id: newId(), site: "", auditor: (prev && prev.auditor) || "", date: today(), remarks: "", entries: [], created: new Date().toISOString() };
+  }
+  function cur() { return data.surveys.find((s) => s.id === data.currentId); }
+  let saveWarned = false;
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); }
+    catch (e) { if (!saveWarned) { toast("Could not save on this device. Storage may be full or blocked."); saveWarned = true; } }
+  }
+
+  // ---------- Toast ----------
+  let toastTimer, toastUndo = null;
+  function toast(msg, undo) {
+    $("#toast-text").textContent = msg;
+    toastUndo = undo || null;
+    $("#toast-action").hidden = !undo;
+    $("#toast").hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { $("#toast").hidden = true; toastUndo = null; }, undo ? 6000 : 2800);
+  }
+  $("#toast-action").addEventListener("click", () => { if (toastUndo) toastUndo(); toastUndo = null; $("#toast").hidden = true; });
+
+  // ---------- Survey picker ----------
+  function surveyLabel(s) { return `${s.site || "Untitled survey"} · ${s.date || ""} (${s.entries.length})`; }
+  function renderPicker() {
+    const sel = $("#survey-select");
+    const sorted = [...data.surveys].sort((a, b) => String(b.created).localeCompare(String(a.created)));
+    sel.innerHTML = sorted.map((s) => `<option value="${esc(s.id)}" ${s.id === data.currentId ? "selected" : ""}>${esc(surveyLabel(s))}</option>`).join("");
+    $("#badge").textContent = cur().entries.length ? `(${cur().entries.length})` : "";
+  }
+  $("#survey-select").addEventListener("change", (e) => { data.currentId = e.target.value; save(); fillSurveyFields(); renderEnter(); refreshReport(); });
+  $("#new-survey").addEventListener("click", () => {
+    const s = blankSurvey(); data.surveys.push(s); data.currentId = s.id; save();
+    showTab("enter"); fillSurveyFields(); renderEnter(); renderPicker();
+    $("#s-site").focus(); toast("New survey started. Enter the site name.");
+  });
+
+  // ---------- Enter view ----------
+  function fillAreaSelect() {
+    $("#f-area").innerHTML = `<option value="">Choose…</option>` + J.CATEGORIES.map((c) => `<optgroup label="${esc(c)}">${
+      J.AREAS.filter((a) => a.category === c).map((a) => `<option value="${esc(a.key)}">${esc(a.name)} (${a.min}–${a.max} lx)</option>`).join("")}</optgroup>`).join("")
+      + `<optgroup label="${esc(J.OSHA_STD)} – minimum only">${J.OSHA.map((a) => `<option value="${esc(a.key)}">${esc(a.name)} (min. ${a.min} lx)</option>`).join("")}</optgroup>`
+      + `<optgroup label="Other"><option value="custom">Other – enter the range</option></optgroup>`;
+  }
+  function fillSurveyFields() {
+    const s = cur();
+    $("#s-site").value = s.site || ""; $("#s-auditor").value = s.auditor || ""; $("#s-date").value = s.date || "";
+    updateMatch();
+  }
+  ["s-site", "s-auditor", "s-date"].forEach((id) => $("#" + id).addEventListener("input", (e) => {
+    const s = cur(); s[{ "s-site": "site", "s-auditor": "auditor", "s-date": "date" }[id]] = e.target.value.trim(); save(); renderPicker();
+    if (id === "s-site") updateMatch();
+  }));
+
+  // Matching: auto from the location words; the person can change it.
+  let picking = false;   // area picker open
+  function autoArea() { const loc = $("#f-loc").value.trim(); return loc ? J.match(loc, cur().site, data.learned) : null; }
+  function currentArea() {
+    if (picking) {
+      const k = $("#f-area").value;
+      if (k === "custom") { const mn = num($("#f-min").value), mx = num($("#f-max").value); return mn != null && (mx == null || mx >= mn) ? { category: "Other", name: "Custom range", min: mn, max: mx, key: "custom", std: "Custom" } : null; }
+      return k ? J.byKey(k) : null;
+    }
+    return autoArea();
+  }
+  function updateMatch() {
+    const loc = $("#f-loc").value.trim(), m = $("#match");
+    const auto = loc ? autoArea() : null;
+    if (!picking && loc && !auto) { picking = true; $("#f-area").value = ""; }
+    $("#pick-wrap").hidden = !picking;
+    $("#custom-wrap").hidden = !(picking && $("#f-area").value === "custom");
+    m.className = "match";
+    if (!loc) { m.textContent = "Type a location. The area type and recommended range are found automatically."; picking = false; $("#pick-wrap").hidden = true; $("#custom-wrap").hidden = true; }
+    else if (picking) {
+      const a = currentArea();
+      if (a) { m.classList.add("ok"); m.innerHTML = `<span>Area: <b>${esc(a.category)} – ${esc(a.name)}</b> · ${srcTag(a)} ${R.rng(a.min, a.max)} lx</span>`; }
+      else { m.classList.add("miss"); m.innerHTML = auto ? `<span>Choose a different area type below.</span><button type="button" class="linkbtn" data-act="use-auto">Use ${esc(auto.name)}</button>` : `<span>“${esc(loc)}” was not recognised. Choose its area type below; it will be remembered.</span>`; }
+    } else {
+      m.classList.add("ok");
+      m.innerHTML = `<span>Area: <b>${esc(auto.category)} – ${esc(auto.name)}</b> · ${srcTag(auto)} ${R.rng(auto.min, auto.max)} lx</span><button type="button" class="linkbtn" data-act="change-area">Change</button>`;
+    }
+    updatePreview();
+  }
+  const srcTag = (a) => (a.std === "OSHA" ? "OSHA" : a.std === "Custom" ? "your range" : "JIS");
+  function updatePreview() {
+    const a = currentArea(), lux = num($("#f-lux").value), p = $("#preview");
+    p.className = "preview";
+    if (!a) { p.textContent = "The rating appears here when you type the lux."; return; }
+    if (lux == null) { p.innerHTML = a.max == null ? `Minimum <b>${a.min} lx</b> (${srcTag(a)}).` : `Recommended range <b>${a.min}–${a.max} lx</b>.`; return; }
+    const st = R.classify(lux, a.min, a.max);
+    p.classList.add("s-" + st);
+    p.innerHTML = `<span class="pill s-${st}">${R.LABEL[st]}</span> ${fmtLux(lux)} lx ${st === "low" ? "is below" : st === "high" ? "is above" : a.max == null ? "meets" : "is within"} ${a.max == null ? "the minimum of " + a.min + " lx" : "the recommended " + a.min + "–" + a.max + " lx"}`;
+  }
+  $("#f-loc").addEventListener("input", () => { picking = false; updateMatch(); });
+  $("#f-area").addEventListener("change", updateMatch);
+  $("#f-min").addEventListener("input", updateMatch);
+  $("#f-max").addEventListener("input", updateMatch);
+  $("#f-lux").addEventListener("input", updatePreview);
+  $("#f-loc").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); (picking && !currentArea() ? $("#f-area") : $("#f-lux")).focus(); } });
+
+  $("#entry-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const loc = $("#f-loc").value.trim(), lux = num($("#f-lux").value), a = currentArea();
+    if (!loc) { toast("Type the location first."); $("#f-loc").focus(); return; }
+    if (!a) { toast("Choose the area type for this location."); (($("#f-area").value === "custom") ? $("#f-min") : $("#f-area")).focus(); return; }
+    if (lux == null || lux < 0) { toast("Type the lux value from the meter."); $("#f-lux").focus(); return; }
+    if (picking && a.key !== "custom") data.learned[J.learnKey(loc)] = a.key;
+    const s = cur();
+    s.entries.push({ id: newId(), location: loc, category: a.category, area: a.name, min: a.min, max: a.max, std: a.std || "JIS", lux, time: new Date().toISOString() });
+    save();
+    const st = R.classify(lux, a.min, a.max);
+    toast(`${loc}: ${fmtLux(lux)} lx – ${R.LABEL[st]}`);
+    $("#f-loc").value = ""; $("#f-lux").value = ""; picking = false; updateMatch();
+    renderEnter(); renderPicker();
+    $("#f-loc").focus();
+  });
+
+  let armed = null, armTimer;
+  function arm(key) { armed = key; clearTimeout(armTimer); armTimer = setTimeout(() => { armed = null; renderEnter(); }, 4000); }
+
+  function renderEnter() {
+    const s = cur();
+    const rows = s.entries.map((e, i) => { const [mn, mx] = R.rangeOf(e); return { e, i, mn, mx, st: R.classify(e.lux, mn, mx) }; }).reverse();
+    const c = { low: 0, good: 0, high: 0 }; rows.forEach((r) => c[r.st]++);
+    $("#list-title").textContent = `Readings (${s.entries.length})`;
+    $("#list-counts").innerHTML = s.entries.length ? ["low", "good", "high"].map((k) => `<span class="pill s-${k}">${c[k]} ${R.LABEL[k]}</span>`).join("") : "";
+    $("#list").innerHTML = rows.length ? rows.map(({ e, st, mn, mx }) => `
+      <div class="row">
+        <div><div class="loc">${esc(e.location)}</div><div class="meta">${esc(e.area || e.type || "")}${e.std === "OSHA" ? " (OSHA)" : ""} · ${R.rng(mn, mx)} lx · ${hhmm(e.time)}</div></div>
+        <div class="val">${fmtLux(e.lux)}<small>lx</small></div>
+        <span class="pill s-${st}">${R.LABEL[st]}</span>
+        <button class="x" data-del="${esc(e.id)}" aria-label="Delete reading at ${esc(e.location)}" title="Delete">${ICON_X}</button>
+      </div>`).join("")
+      : `<div class="empty"><p>No readings yet. Type a location and the lux from your meter, then tap Add reading.</p><button class="btn" type="button" data-act="example">Try with example readings</button></div>`;
+    const locs = [...new Set(s.entries.map((e) => e.location))].slice(-200);
+    $("#loc-list").innerHTML = locs.map((l) => `<option value="${esc(l)}"></option>`).join("");
+    const acts = [];
+    if (s.entries.length) acts.push(`<button class="btn danger${armed === "all" ? " armed" : ""}" type="button" data-act="del-all">${armed === "all" ? "Tap again to delete all readings" : "Delete all readings"}</button>`);
+    acts.push(`<button class="btn danger${armed === "survey" ? " armed" : ""}" type="button" data-act="del-survey">${armed === "survey" ? "Tap again to delete this survey" : "Delete this survey"}</button>`);
+    $("#list-actions").innerHTML = acts.join("");
+  }
+
+  document.addEventListener("click", (e) => {
+    const d = e.target.closest("[data-del]");
+    if (d) {
+      const s = cur(); const idx = s.entries.findIndex((x) => x.id === d.dataset.del); if (idx < 0) return;
+      const [gone] = s.entries.splice(idx, 1); save(); renderEnter(); renderPicker();
+      toast(`Deleted ${gone.location}`, () => { s.entries.splice(Math.min(idx, s.entries.length), 0, gone); save(); renderEnter(); renderPicker(); });
+      return;
+    }
+    const a = e.target.closest("[data-act]"); if (!a) return;
+    const s = cur();
+    switch (a.dataset.act) {
+      case "example": {
+        if (!s.site) { s.site = "Example Base Hospital (sample data)"; }
+        const ex = [["Ward 4 – bed 1", 62], ["Ward 4 – bed 2", 118], ["Ward 4 – bed 3", 175], ["Nurses station", 260], ["OPD room 2", 540], ["OPD room 3", 280], ["Main corridor", 235], ["Laboratory", 720], ["Pharmacy", 480], ["Toilet – ground floor", 95], ["X-ray room", 610], ["Stair case A", 140], ["Car park", 25], ["Laundry", 140]];
+        ex.forEach(([loc, lux], i) => { const a = J.match(loc, s.site, data.learned); if (a) s.entries.push({ id: newId(), location: loc, category: a.category, area: a.name, min: a.min, max: a.max, std: a.std, lux, time: new Date(Date.now() - (ex.length - i) * 90e3).toISOString() }); });
+        save(); fillSurveyFields(); renderEnter(); renderPicker(); toast("Example readings added. Open the Report tab.");
+        break;
+      }
+      case "change-area": { const a = autoArea(); picking = true; $("#f-area").value = a ? a.key : ""; updateMatch(); $("#f-area").focus(); break; }
+      case "use-auto": picking = false; updateMatch(); break;
+      case "del-all":
+        if (armed !== "all") { arm("all"); renderEnter(); break; }
+        armed = null; { const old = s.entries; s.entries = []; save(); renderEnter(); renderPicker(); toast("All readings deleted", () => { s.entries = old; save(); renderEnter(); renderPicker(); }); }
+        break;
+      case "del-survey":
+        if (armed !== "survey") { arm("survey"); renderEnter(); break; }
+        armed = null; {
+          const idx = data.surveys.indexOf(s); data.surveys.splice(idx, 1);
+          if (!data.surveys.length) data.surveys.push(blankSurvey());
+          data.currentId = data.surveys[0].id; save(); fillSurveyFields(); renderEnter(); renderPicker();
+          toast("Survey deleted", () => { data.surveys.splice(idx, 0, s); data.currentId = s.id; save(); fillSurveyFields(); renderEnter(); renderPicker(); });
+        }
+        break;
+      case "xlsx": downloadExcel(a); break;
+      case "docx": downloadWord(a); break;
+      case "backup": downloadBackup(); break;
+      case "install": if (installPrompt) { installPrompt.prompt(); installPrompt.userChoice.finally(() => { installPrompt = null; refreshReport(); }); } break;
+      case "go-enter": showTab("enter"); $("#f-loc").focus(); break;
+    }
+  });
+
+  // ---------- Tabs ----------
+  function showTab(name) {
+    $("#tab-enter").setAttribute("aria-selected", String(name === "enter"));
+    $("#tab-report").setAttribute("aria-selected", String(name === "report"));
+    $("#view-enter").hidden = name !== "enter";
+    $("#view-report").hidden = name !== "report";
+    if (name === "report") renderReport();
+    window.scrollTo(0, 0);
+  }
+  document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  const refreshReport = () => { if (!$("#view-report").hidden) renderReport(); };
+
+  // ---------- Charts (canvas) ----------
+  function themeColors(forExport) {
+    if (forExport) return { bg: "#FFFFFF", fg: "#15212A", muted: "#5A6974", grid: "#E1E6EA", low: "#C0392B", good: "#2E8B57", high: "#D98E04", target: "#15212A", band: "#DCE4EB", bandEdge: "#6B7883" };
+    const cs = getComputedStyle(document.documentElement), v = (n) => cs.getPropertyValue(n).trim();
+    return { bg: v("--panel"), fg: v("--ink"), muted: v("--muted"), grid: v("--rule"), low: v("--low"), good: v("--good"), high: v("--high"), target: v("--ink"), band: v("--accent-soft"), bandEdge: v("--muted") };
+  }
+  function niceStep(max, n) {
+    const raw = max / n, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+  }
+  function ellipsize(ctx, text, w) {
+    if (ctx.measureText(text).width <= w) return text;
+    let t = text; while (t.length > 1 && ctx.measureText(t + "…").width > w) t = t.slice(0, -1);
+    return t + "…";
+  }
+  const FONT = (size, weight = 400) => `${weight} ${size}px "IBM Plex Sans", "Segoe UI", Arial, sans-serif`;
+
+  function drawLuxChart(canvas, rows, width, scale, C) {
+    const ctx0 = canvas.getContext("2d"); ctx0.font = FONT(12, 500);
+    const legendW = 8 + ["Low", "Good", "High"].reduce((a, t) => a + 35 + ctx0.measureText(t).width, 0) + 14 + ctx0.measureText("Recommended level").width;
+    const rowH = 30, top = legendW > width - 4 ? 64 : 44, bottom = 46, right = 70;
+    ctx0.font = FONT(13);
+    const labelW = Math.min(width * 0.38, Math.max(80, ...rows.map((r) => ctx0.measureText(r.location).width + 12)));
+    const height = top + rows.length * rowH + bottom;
+    canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale);
+    const ctx = canvas.getContext("2d"); ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.fillStyle = C.bg; ctx.fillRect(0, 0, width, height);
+    const x0 = labelW, x1 = width - right;
+    const maxV = Math.max(1, ...rows.map((r) => Math.max(r.lux, r.max == null ? r.min : r.max))) * 1.08;
+    const step = niceStep(maxV, 5), axisMax = Math.ceil(maxV / step) * step;
+    const X = (v) => x0 + (v / axisMax) * (x1 - x0);
+    // legend
+    ctx.font = FONT(12, 500); ctx.textBaseline = "middle";
+    let lx = Math.min(x0, 8), ly = 20;
+    [["low", "Low"], ["good", "Good"], ["high", "High"]].forEach(([k, t]) => { ctx.fillStyle = C[k]; ctx.fillRect(lx, ly - 6, 14, 12); ctx.fillStyle = C.fg; ctx.textAlign = "left"; ctx.fillText(t, lx + 19, ly); lx += 19 + ctx.measureText(t).width + 16; });
+    const recLabel = "Recommended range";
+    if (lx + 26 + ctx.measureText(recLabel).width > width - 4) { lx = Math.min(x0, 8); ly += 22; }
+    ctx.fillStyle = C.band; ctx.fillRect(lx, ly - 9, 20, 18); ctx.strokeStyle = C.bandEdge; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(lx, ly - 9); ctx.lineTo(lx, ly + 9); ctx.moveTo(lx + 20, ly - 9); ctx.lineTo(lx + 20, ly + 9); ctx.stroke();
+    ctx.fillStyle = C.fg; ctx.fillText(recLabel, lx + 26, ly);
+    // grid + axis
+    ctx.font = FONT(12); ctx.textAlign = "center"; ctx.textBaseline = "top";
+    for (let v = 0; v <= axisMax + 1e-9; v += step) {
+      const x = X(v); ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, top - 4); ctx.lineTo(x, top + rows.length * rowH); ctx.stroke();
+      ctx.fillStyle = C.muted; ctx.fillText(String(Math.round(v)), x, top + rows.length * rowH + 6);
+    }
+    ctx.fillText("Illuminance (lx)", (x0 + x1) / 2, top + rows.length * rowH + 26);
+    // bars
+    rows.forEach((r, i) => {
+      const y = top + i * rowH, bh = rowH * 0.58, by = y + (rowH - bh) / 2;
+      ctx.font = FONT(13); ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillStyle = C.fg;
+      ctx.fillText(ellipsize(ctx, r.location, labelW - 12), labelW - 10, y + rowH / 2);
+      const bx0 = X(r.min), bx1 = r.max == null ? bx0 : X(r.max);
+      if (r.max != null) { ctx.fillStyle = C.band; ctx.fillRect(bx0, y + 2, bx1 - bx0, rowH - 4); }
+      ctx.fillStyle = C[r.status]; ctx.fillRect(x0, by, Math.max(1.5, X(r.lux) - x0), bh);
+      ctx.strokeStyle = C.bandEdge; ctx.lineWidth = 1.5; ctx.beginPath();
+      ctx.moveTo(bx0, y + 2); ctx.lineTo(bx0, y + rowH - 2); if (r.max != null) { ctx.moveTo(bx1, y + 2); ctx.lineTo(bx1, y + rowH - 2); } ctx.stroke();
+      ctx.font = FONT(12, 600); ctx.textAlign = "left"; ctx.fillStyle = C.fg;
+      ctx.fillText(fmtLux(r.lux), Math.max(X(r.lux), bx1) + 6, y + rowH / 2);
+    });
+    return { width, height };
+  }
+
+  function drawStatusChart(canvas, count, n, width, scale, C) {
+    const height = Math.round(width * 0.5);
+    canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale);
+    const ctx = canvas.getContext("2d"); ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.fillStyle = C.bg; ctx.fillRect(0, 0, width, height);
+    const top = 34, bottom = 34, left = 16, right = 16;
+    const max = Math.max(1, count.low, count.good, count.high);
+    const keys = ["low", "good", "high"], slot = (width - left - right) / 3, bw = Math.min(110, slot * 0.55);
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(left, height - bottom); ctx.lineTo(width - right, height - bottom); ctx.stroke();
+    keys.forEach((k, i) => {
+      const cx = left + slot * i + slot / 2, h = ((height - top - bottom) * count[k]) / max, y = height - bottom - h;
+      ctx.fillStyle = C[k]; ctx.fillRect(cx - bw / 2, y, bw, h);
+      ctx.fillStyle = C.fg; ctx.textAlign = "center"; ctx.textBaseline = "bottom"; ctx.font = FONT(15, 600);
+      ctx.fillText(`${count[k]}  (${n ? Math.round((count[k] / n) * 100) : 0}%)`, cx, y - 6);
+      ctx.textBaseline = "top"; ctx.font = FONT(14, 600); ctx.fillStyle = C[k];
+      ctx.fillText(R.LABEL[k], cx, height - bottom + 8);
+    });
+    return { width, height };
+  }
+
+  function exportCharts(survey) {
+    const s = R.summarize(survey), C = themeColors(true);
+    const c1 = document.createElement("canvas");
+    const d1 = drawStatusChart(c1, s.count, s.n, 520, 2.5, C);
+    const status = { data: c1.toDataURL("image/png"), width: d1.width, height: d1.height };
+    const lux = [];
+    for (let i = 0; i < s.rows.length; i += 35) {
+      const c = document.createElement("canvas");
+      const d = drawLuxChart(c, s.rows.slice(i, i + 35), 680, 2.5, C);
+      lux.push({ data: c.toDataURL("image/png"), width: d.width, height: d.height });
+    }
+    return { status, lux };
+  }
+
+  // ---------- Report view ----------
+  function renderReport() {
+    const s = cur(), sum = R.summarize(s), v = $("#view-report");
+    if (!sum.n) {
+      v.innerHTML = `<section class="panel empty"><p>The report appears here automatically once you add readings.</p><button class="btn primary" type="button" data-act="go-enter">Enter readings</button></section>`;
+      return;
+    }
+    const tbl = (arr) => `<div class="tbl-wrap"><table><thead><tr><th>Location</th><th class="opt">Area type</th><th class="n">Measured</th><th class="n">Range</th><th>Rating</th></tr></thead><tbody>${
+      arr.map((r) => `<tr><td>${esc(r.location)}</td><td class="opt">${esc(r.area)}${r.std === "OSHA" ? " (OSHA)" : ""}</td><td class="n">${fmtLux(r.lux)}</td><td class="n">${R.rng(r.min, r.max)}</td><td><span class="pill s-${r.status}">${R.LABEL[r.status]}</span></td></tr>`).join("")}</tbody></table></div>`;
+    v.innerHTML = `
+      <section class="panel">
+        <h1>Illuminance Survey Report</h1>
+        <p class="sub">${esc(s.site || "Untitled site")}${s.date ? " · " + esc(R.longDate(s.date)) : ""}${s.auditor ? " · " + esc(s.auditor) : ""} · ${sum.n} readings, ${sum.locations} locations</p>
+      </section>
+      <div class="downloads">
+        <button class="btn primary big" type="button" data-act="xlsx">${ICON_DL} Excel report</button>
+        <button class="btn primary big" type="button" data-act="docx">${ICON_DL} Word report</button>
+      </div>
+      <div class="tiles">
+        ${["low", "good", "high"].map((k) => `<div class="tile s-${k}"><div class="k">${R.LABEL[k]}</div><div class="v">${sum.count[k]}</div><div class="p">${Math.round((sum.count[k] / sum.n) * 100)}% of readings</div></div>`).join("")}
+      </div>
+      <section class="panel"><h2>Readings by rating</h2><canvas id="c-status" aria-label="Number of readings rated Low, Good and High"></canvas></section>
+      <section class="panel"><h2>Measured lux by location</h2><canvas id="c-lux" aria-label="Measured lux for each location compared with the recommended range"></canvas></section>
+      <section class="panel"><h2>Rating of each location</h2>${tbl(sum.rows)}</section>
+      <section class="panel findings"><h2>Findings</h2>${R.findings(s, sum).map((t) => `<p>${esc(t)}</p>`).join("")}</section>
+      ${sum.lows.length ? `<section class="panel"><h2>Below the recommended range (${sum.lows.length})</h2>${tbl(sum.lows)}</section>` : ""}
+      ${sum.highs.length ? `<section class="panel"><h2>Above the recommended range (${sum.highs.length})</h2>${tbl(sum.highs)}</section>` : ""}
+      <section class="panel stack">
+        <div class="field"><label for="r-remarks">Remarks for the report (optional)</label><textarea id="r-remarks" placeholder="e.g. Two lamps failed in Ward 4. Survey done between 10:00 and 12:00.">${esc(s.remarks || "")}</textarea></div>
+        <p class="hint">${esc(R.basisText())}</p>
+      </section>
+      <section class="panel stack">
+        <h2>Data on this device</h2>
+        <p class="hint">Readings are saved on this device only. Download a backup to keep a copy or move surveys to another phone or computer.</p>
+        <div class="actions">
+          <button class="btn" type="button" data-act="backup">Download backup</button>
+          <label class="btn" for="import-file">Load backup</label>
+          <input type="file" id="import-file" accept=".json,application/json" hidden>
+          ${installPrompt ? `<button class="btn" type="button" data-act="install">Install app</button>` : ""}
+        </div>
+      </section>`;
+    drawScreenCharts();
+  }
+  function drawScreenCharts() {
+    const s = cur(), sum = R.summarize(s), C = themeColors(false), dpr = window.devicePixelRatio || 1;
+    const c1 = $("#c-status"), c2 = $("#c-lux"); if (!c1 || !c2) return;
+    const w = c1.parentElement.clientWidth - 32;
+    drawStatusChart(c1, sum.count, sum.n, Math.min(w, 560), dpr, C);
+    c1.style.maxWidth = Math.min(w, 560) + "px";
+    drawLuxChart(c2, sum.rows, w, dpr, C);
+  }
+  let resizeT; window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (!$("#view-report").hidden) drawScreenCharts(); }, 200); });
+  window.matchMedia && matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (!$("#view-report").hidden) drawScreenCharts(); });
+
+  document.addEventListener("input", (e) => {
+    if (e.target.id === "r-remarks") { cur().remarks = e.target.value; save(); }
+  });
+  document.addEventListener("change", (e) => {
+    if (e.target.id === "import-file") { const f = e.target.files && e.target.files[0]; if (f) importBackup(f); e.target.value = ""; }
+  });
+
+  // ---------- Downloads ----------
+  const loaded = {};
+  function loadScript(src) {
+    if (!loaded[src]) loaded[src] = new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => { delete loaded[src]; rej(new Error("load")); }; document.head.appendChild(s); });
+    return loaded[src];
+  }
+  async function loadAny(srcs) {
+    for (const src of srcs) { try { await loadScript(src); return; } catch (e) {} }
+    throw new Error("load");
+  }
+  const LIB_XLSX = ["lib/exceljs.min.js", "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"];
+  const LIB_DOCX = ["lib/docx.js", "https://cdn.jsdelivr.net/npm/docx@9.0.2/build/index.iife.js"];
+  function saveBlob(blob, name) {
+    const url = URL.createObjectURL(blob); const a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  async function withBusy(btn, label, fn) {
+    const old = btn.innerHTML; btn.classList.add("busy"); btn.textContent = label;
+    try { await fn(); } catch (e) { console.error(e); toast("Could not create the file. Check your connection and try again."); }
+    finally { btn.classList.remove("busy"); btn.innerHTML = old; }
+  }
+  function downloadExcel(btn) {
+    withBusy(btn, "Creating Excel…", async () => {
+      await loadAny(LIB_XLSX);
+      const s = cur(); const buf = await R.buildXlsx(window.ExcelJS, s, exportCharts(s));
+      saveBlob(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), R.fileBase(s) + ".xlsx");
+      toast("Excel report downloaded");
+    });
+  }
+  function downloadWord(btn) {
+    withBusy(btn, "Creating Word…", async () => {
+      await loadAny(LIB_DOCX);
+      const s = cur(); const doc = await R.buildDocx(window.docx, s, exportCharts(s));
+      saveBlob(await window.docx.Packer.toBlob(doc), R.fileBase(s) + ".docx");
+      toast("Word report downloaded");
+    });
+  }
+  function downloadBackup() {
+    const blob = new Blob([JSON.stringify({ app: "LuxLog", version: 2, exported: new Date().toISOString(), surveys: data.surveys }, null, 1)], { type: "application/json" });
+    saveBlob(blob, `LuxLog_backup_${today().replace(/-/g, "")}.json`); toast("Backup downloaded");
+  }
+  function importBackup(file) {
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const j = JSON.parse(fr.result); const list = j.surveys;
+        if (!Array.isArray(list)) throw 0;
+        let added = 0, updated = 0;
+        list.forEach((s) => { if (!s || !s.id || !Array.isArray(s.entries)) return; const i = data.surveys.findIndex((x) => x.id === s.id); if (i >= 0) { data.surveys[i] = s; updated++; } else { data.surveys.push(s); added++; } });
+        save(); fillSurveyFields(); renderEnter(); renderPicker(); refreshReport();
+        toast(`Backup loaded: ${added} new, ${updated} updated`);
+      } catch (e) { toast("That file is not a LuxLog backup."); }
+    };
+    fr.readAsText(file);
+  }
+
+  // ---------- Install / offline ----------
+  let installPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; refreshReport(); });
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+  if ("serviceWorker" in navigator && location.protocol === "https:") window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  window.addEventListener("storage", (e) => { if (e.key === KEY) { load(); fillSurveyFields(); renderEnter(); renderPicker(); refreshReport(); } });
+
+  // ---------- Start ----------
+  load(); fillAreaSelect(); fillSurveyFields(); renderEnter(); renderPicker();
+})();
+</script>
+</body>
+</html>
